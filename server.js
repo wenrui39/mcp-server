@@ -85,23 +85,21 @@ server.tool(
   }
 );
 
-// 4. 启动 Express SSE 服务
 const app = express();
 app.use(cors());
 
-// SSE 连接点
 app.get('/sse', async (req, res) => {
   console.log("New SSE connection established");
   const transport = new SSEServerTransport('/messages', res);
   await server.connect(transport);
 });
 
-// 消息接收点 (关键：直接返回 200，让 SDK 内部处理)
+
 app.post('/messages', async (req, res) => {
   res.sendStatus(200);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const PORT = process.env.PORT || 3000; 
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Stealth MCP Server running on port ${PORT} (SSE mode)`);
 });
