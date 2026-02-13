@@ -1,0 +1,17 @@
+{
+  "name": "stealth-mcp-server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "express": "^4.21.0",
+    "playwright": "^1.41.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "cors": "^2.8.5",
+    "zod": "^3.22.4"
+  }
+}
