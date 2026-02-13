@@ -1,4 +1,3 @@
-
 FROM mcr.microsoft.com/playwright:v1.41.0-jammy
 
 WORKDIR /app
@@ -9,7 +8,6 @@ RUN npm install
 
 COPY server.js ./
 
-
-EXPOSE 3000
+EXPOSE 10000
 
 CMD ["npm", "start"]
