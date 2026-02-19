@@ -22,7 +22,6 @@ server.tool(
     waitFor: z.number().optional().describe("Seconds to wait (default: 5)"),
   },
   async ({ url, waitFor = 5 }) => {
-    // 抓取逻辑保持不变
     let browser;
     try {
       browser = await chromium.launch({
@@ -47,30 +46,30 @@ server.tool(
 
 const app = express();
 app.use(cors());
-app.use(express.json()); // 关键：确保能解析 n8n 发来的 JSON POST 请求
+app.use(express.json());
 
-// 🌟 1. 首页健康检查 (验证代码是否更新的唯一标准)
+// 🌟 终极救命代码：信任 Render 的 HTTPS 代理
+app.set('trust proxy', true);
+
+// 健康检查：用来确认代码是否更新
 app.get('/', (req, res) => {
-  res.send('🟢 V3 ONLINE: MCP Server is RUNNING!');
+  res.send('🟢 V4 ONLINE: Proxy Trusted & Ready for n8n!');
 });
 
 let activeTransport = null;
 
-// 🌟 2. 建立 SSE 通道
 app.get('/sse', async (req, res) => {
-  console.log('🔗 [GET /sse] n8n is trying to connect...');
-  
-  // Render 黑魔法：强制 Nginx 代理不缓存数据流
+  console.log('🔗 [GET /sse] Connection requested');
+  // 强制 Render 不要缓存 SSE 流
   res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Cache-Control', 'no-cache');
   
-  // 告诉 n8n 将指令发送到 /messages 路径
   activeTransport = new SSEServerTransport('/messages', res);
   await server.connect(activeTransport);
 });
 
-// 🌟 3. 接收 n8n 的指令
 app.post('/messages', async (req, res) => {
-  console.log('📩 [POST /messages] n8n sent a command');
+  console.log('📩 [POST /messages] Command received');
   if (activeTransport) {
     await activeTransport.handlePostMessage(req, res);
   } else {
