@@ -64,34 +64,50 @@ server.tool(
 );
 
 const app = express();
-app.use(cors()); // 允许跨域
+app.use(cors());
 
-// ✅ 新增：请求日志中间件 (方便调试)
+// 日志中间件
 app.use((req, res, next) => {
   console.log(`[Request] ${req.method} ${req.url}`);
   next();
 });
 
-// ✅ 新增：健康检查 (解决你的 404 问题)
+// 健康检查
 app.get('/', (req, res) => {
   res.send('✅ MCP Server is RUNNING! Please use /sse endpoint in n8n.');
 });
 
-// SSE 端点
+// 🌟 核心修复：声明一个全局变量保存连接通道
+let activeTransport = null;
+
+// 1. n8n 建立 SSE 连接 (GET 请求)
 app.get('/sse', async (req, res) => {
-  console.log('✅ New SSE Connection detected!');
-  const transport = new SSEServerTransport('/messages', res);
-  await server.connect(transport);
+  console.log('✅ New SSE Connection established!');
+  // 告诉 n8n 将消息发到 /messages
+  activeTransport = new SSEServerTransport('/messages', res);
+  await server.connect(activeTransport);
 });
 
-// 消息处理端点
+// 2. 接收 n8n 发来的标准对话消息
 app.post('/messages', async (req, res) => {
-  console.log('📩 Message received via POST');
-  await server.connect(new SSEServerTransport('/messages', res));
-  // 这里的处理逻辑由 SDK 接管，我们只需透传
+  console.log('📩 Message received on /messages');
+  if (activeTransport) {
+    await activeTransport.handlePostMessage(req, res); // 必须用这个方法
+  } else {
+    res.status(400).send('No active SSE connection');
+  }
 });
 
-// Render 会自动分配 PORT，如果本地运行则用 3000
+// 3. 兜底方案：如果 n8n 强行把消息发到 /sse，我们也接住它！
+app.post('/sse', async (req, res) => {
+  console.log('📩 Message received on /sse (Fallback)');
+  if (activeTransport) {
+    await activeTransport.handlePostMessage(req, res); // 必须用这个方法
+  } else {
+    res.status(400).send('No active SSE connection');
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server listening on port ${PORT}`);
