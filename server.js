@@ -85,25 +85,41 @@ let activeTransport = null;
 
 // 1. 建立 SSE 连接 (n8n 必须先调用这个)
 app.get('/sse', async (req, res) => {
-  console.log('✅ New SSE Connection established!');
-  // 强制指定：告诉 n8n 把后续的消息全部发回 /sse
+  console.log('✅ n8n is attempting to connect to SSE...');
+
+  // Critical headers for Render and SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable Render proxy buffering
+
   activeTransport = new SSEServerTransport('/sse', res);
-  await server.connect(activeTransport);
+  
+  try {
+    await server.connect(activeTransport);
+    console.log('🚀 MCP Server connected to transport');
+  } catch (err) {
+    console.error('❌ Connection error:', err);
+  }
+
+  // Handle client disconnect
+  req.on('close', () => {
+    console.log('🔌 Client closed SSE connection');
+    activeTransport = null;
+  });
 });
 
-// 2. 接收指令 (n8n 发送具体抓取任务)
+// 2. Receiving POST messages
 app.post('/sse', async (req, res) => {
-  console.log('📩 Message received on /sse');
   if (activeTransport) {
     await activeTransport.handlePostMessage(req, res);
   } else {
-    console.error('❌ 拒绝访问：n8n 没有先建立 GET 连接！');
     res.status(400).send('No active SSE connection');
   }
 });
 
-// 启动服务
-const PORT = process.env.PORT || 3000;
+// Use Render's preferred port
+const PORT = process.env.PORT || 10000; 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
