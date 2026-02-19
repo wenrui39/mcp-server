@@ -28,7 +28,6 @@ server.tool(
     console.log(`[Job] Starting visit to: ${url}`);
     let browser;
     try {
-      console.log('[Job] Launching browser...');
       browser = await chromium.launch({
         headless: process.env.HEADLESS !== 'false',
         args: [
@@ -64,53 +63,36 @@ server.tool(
 );
 
 const app = express();
-app.use(cors()); // 允许跨域
+app.use(cors());
 
-// 请求日志中间件
 app.use((req, res, next) => {
-  // 过滤掉烦人的 favicon 请求
-  if (req.url !== '/favicon.ico') {
-    console.log(`[Request] ${req.method} ${req.url}`);
-  }
+  console.log(`[Request] ${req.method} ${req.url}`);
   next();
 });
 
-// 健康检查
+// 健康检查页
 app.get('/', (req, res) => {
   res.send('✅ MCP Server is RUNNING!');
 });
 
-// 🌟 核心通道变量
+// 全局连接通道
 let activeTransport = null;
 
-// 1. 建立 SSE 连接 (n8n 必须先调用这个)
+// 1. GET /sse：建立连接的入口
 app.get('/sse', async (req, res) => {
-  console.log('✅ n8n is attempting to connect to SSE...');
-
-  // Critical headers for Render and SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Disable Render proxy buffering
-
-  activeTransport = new SSEServerTransport('/sse', res);
+  console.log('✅ [GET] New SSE Connection Request');
   
-  try {
-    await server.connect(activeTransport);
-    console.log('🚀 MCP Server connected to transport');
-  } catch (err) {
-    console.error('❌ Connection error:', err);
-  }
-
-  // Handle client disconnect
-  req.on('close', () => {
-    console.log('🔌 Client closed SSE connection');
-    activeTransport = null;
-  });
+  // 🌟 终极黑魔法：强制 Render 不要缓存/拦截 SSE 流
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Cache-Control', 'no-cache');
+  
+  activeTransport = new SSEServerTransport('/message', res);
+  await server.connect(activeTransport);
 });
 
-// 2. Receiving POST messages
-app.post('/sse', async (req, res) => {
+// 2. POST /message：接收 n8n 真实指令的入口
+app.post('/message', async (req, res) => {
+  console.log('📩 [POST] Message received on /message');
   if (activeTransport) {
     await activeTransport.handlePostMessage(req, res);
   } else {
@@ -118,8 +100,17 @@ app.post('/sse', async (req, res) => {
   }
 });
 
-// Use Render's preferred port
-const PORT = process.env.PORT || 10000; 
+// 3. POST /sse：防止 n8n 发神经的备用入口
+app.post('/sse', async (req, res) => {
+  console.log('⚠️ [POST] Warning: Received POST on /sse directly');
+  if (activeTransport) {
+    await activeTransport.handlePostMessage(req, res);
+  } else {
+    res.status(400).send('No active SSE connection');
+  }
+});
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server listening on port ${PORT}`);
 });
