@@ -7,16 +7,13 @@ import playwright from 'playwright-extra';
 const chromium = playwright.chromium;
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
-// 启用隐身插件
 chromium.use(StealthPlugin());
 
-// 初始化 MCP 服务器
 const server = new McpServer({
   name: "StealthBrowser",
   version: "1.0.0",
 });
 
-// 定义工具
 server.tool(
   "stealth_browse",
   "Visit a webpage using a stealth browser to bypass Cloudflare.",
@@ -25,36 +22,22 @@ server.tool(
     waitFor: z.number().optional().describe("Seconds to wait (default: 5)"),
   },
   async ({ url, waitFor = 5 }) => {
-    console.log(`[Job] Starting visit to: ${url}`);
+    // 抓取逻辑保持不变
     let browser;
     try {
       browser = await chromium.launch({
         headless: process.env.HEADLESS !== 'false',
-        args: [
-          '--no-sandbox', 
-          '--disable-setuid-sandbox', 
-          '--disable-blink-features=AutomationControlled',
-          '--disable-infobars'
-        ],
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled'],
         proxy: process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY } : undefined
       });
-      
       const page = await browser.newPage();
       await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
-
-      console.log('[Job] Navigating...');
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-      
-      console.log(`[Job] Waiting ${waitFor}s...`);
       await page.waitForTimeout(waitFor * 1000);
-      
       const content = await page.content();
       const title = await page.title();
-      console.log(`[Job] Success! Title: ${title}`);
-      
       return { content: [{ type: "text", text: `Title: ${title}\n\nHTML Content:\n${content}` }] };
     } catch (error) {
-      console.error('[Job] Error:', error.message);
       return { content: [{ type: "text", text: `Error: ${error.message}` }], isError: true };
     } finally {
       if (browser) await browser.close();
@@ -64,49 +47,34 @@ server.tool(
 
 const app = express();
 app.use(cors());
+app.use(express.json()); // 关键：确保能解析 n8n 发来的 JSON POST 请求
 
-app.use((req, res, next) => {
-  console.log(`[Request] ${req.method} ${req.url}`);
-  next();
-});
-
-// 健康检查页
+// 🌟 1. 首页健康检查 (验证代码是否更新的唯一标准)
 app.get('/', (req, res) => {
-  res.send('✅ MCP Server is RUNNING!');
+  res.send('🟢 V3 ONLINE: MCP Server is RUNNING!');
 });
 
-// 全局连接通道
 let activeTransport = null;
 
-// 1. GET /sse：建立连接的入口
+// 🌟 2. 建立 SSE 通道
 app.get('/sse', async (req, res) => {
-  console.log('✅ [GET] New SSE Connection Request');
+  console.log('🔗 [GET /sse] n8n is trying to connect...');
   
-  // 🌟 终极黑魔法：强制 Render 不要缓存/拦截 SSE 流
+  // Render 黑魔法：强制 Nginx 代理不缓存数据流
   res.setHeader('X-Accel-Buffering', 'no');
-  res.setHeader('Cache-Control', 'no-cache');
   
-  activeTransport = new SSEServerTransport('/message', res);
+  // 告诉 n8n 将指令发送到 /messages 路径
+  activeTransport = new SSEServerTransport('/messages', res);
   await server.connect(activeTransport);
 });
 
-// 2. POST /message：接收 n8n 真实指令的入口
-app.post('/message', async (req, res) => {
-  console.log('📩 [POST] Message received on /message');
+// 🌟 3. 接收 n8n 的指令
+app.post('/messages', async (req, res) => {
+  console.log('📩 [POST /messages] n8n sent a command');
   if (activeTransport) {
     await activeTransport.handlePostMessage(req, res);
   } else {
-    res.status(400).send('No active SSE connection');
-  }
-});
-
-// 3. POST /sse：防止 n8n 发神经的备用入口
-app.post('/sse', async (req, res) => {
-  console.log('⚠️ [POST] Warning: Received POST on /sse directly');
-  if (activeTransport) {
-    await activeTransport.handlePostMessage(req, res);
-  } else {
-    res.status(400).send('No active SSE connection');
+    res.status(400).send('No active connection');
   }
 });
 
